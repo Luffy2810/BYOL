@@ -13,7 +13,7 @@ import seaborn as sns
 import pandas as pd
 from tqdm import tqdm
 from torch.optim.lr_scheduler import StepLR
-torch.cuda.set_device(0)
+torch.cuda.set_device(1)
 # torch.backends.cudnn.deterministic = True
 # torch.backends.cudnn.benchmark = False
 from torch.utils.tensorboard import SummaryWriter
@@ -40,8 +40,8 @@ def Linear():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
     resnet=make_model()
-    if(os.path.isfile("results_pretrained/modelq.pth")):
-        resnet.load_state_dict(torch.load("results_pretrained/modelq.pth"))
+    if(os.path.isfile("results/modelq.pth")):
+        resnet.load_state_dict(torch.load("results/modelq.pth"))
         resnet.eval().to(device)
     else:
         print("Model Does not exist")

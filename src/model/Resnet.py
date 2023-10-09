@@ -3,16 +3,29 @@ import torch.nn as nn
 from torchvision.models import resnet18
 from collections import OrderedDict
 
-def make_model():
-    resnet = resnet18(weights=None)
+class ResNet18(torch.nn.Module):
+    
+    def __init__(self):
+        super(ResNet18, self).__init__()
+        resnet = resnet18(weights=None)
+        self.encoder = torch.nn.Sequential(*list(resnet.children())[:-1])
+        self.projection = MLPHead(in_channels=resnet.fc.in_features,mlp_hidden_size=512, projection_size=128)
 
-    classifier = nn.Sequential(OrderedDict([
-        ('fc1', nn.Linear(resnet.fc.in_features, 100)),
-        ('added_relu1', nn.ReLU(inplace=True)),
-        ('fc2', nn.Linear(100, 50)),
-        ('added_relu2', nn.ReLU(inplace=True)),
-        ('fc3', nn.Linear(50, 25))
-    ]))
+    def forward(self, x):
+        h = self.encoder(x)
+        h = h.view(h.shape[0], h.shape[1])
+        return self.projection(h)
 
-    resnet.fc = classifier
-    return resnet
+
+class MLPHead(nn.Module):
+    def __init__(self, in_channels, mlp_hidden_size, projection_size):
+        super(MLPHead, self).__init__()
+
+        self.net = nn.Sequential(
+            nn.Linear(in_channels, mlp_hidden_size),
+            nn.BatchNorm1d(mlp_hidden_size),
+            nn.ReLU(inplace=True),
+            nn.Linear(mlp_hidden_size, projection_size)
+        )
+    def forward(self, x):
+        return self.net(x)

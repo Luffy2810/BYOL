@@ -1,5 +1,5 @@
-from src.dataset.dataloader import get_mutated_dataloader
-from src.model.Resnet import make_model
+from src.dataset.image10_dataloader import get_mutated_dataloader
+from src.model.Resnet import ResNet18,MLPHead
 from src.model.loss import loss_function
 import numpy as np
 import torch
@@ -9,10 +9,11 @@ import os
 import matplotlib.pyplot as plt
 import seaborn as sns
 import copy
-torch.cuda.set_device(0)
+torch.cuda.set_device(1)
 # torch.backends.cudnn.deterministic = True
 # torch.backends.cudnn.benchmark = False
 from torch.utils.tensorboard import SummaryWriter
+from tqdm import tqdm
 writer = SummaryWriter()
 
 
@@ -25,9 +26,13 @@ def train():
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     dataloader_training_dataset_mutated = get_mutated_dataloader()
 
-    resnetq=make_model().to(device)
+    resnetq=ResNet18().to(device)
     resnetk = copy.deepcopy(resnetq).to(device)
-    optimizer = torch.optim.Adam(resnetq.parameters(),0.2, weight_decay=1.5e-6)
+
+
+    predictor = MLPHead(in_channels=resnetq.projection.net[-1].out_features,mlp_hidden_size=512, projection_size=128).to(device)
+
+    optimizer = torch.optim.SGD(list(resnetq.parameters()) + list(predictor.parameters()),0.2, weight_decay=1.5e-6)
     scheduler = torch.optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=len(dataloader_training_dataset_mutated), eta_min=0,
                                                            last_epoch=-1)
     losses_train = []
@@ -42,6 +47,7 @@ def train():
     if(os.path.isfile("results/modelq.pth")):
         resnetq.load_state_dict(torch.load("results/modelq.pth"))
         resnetk.load_state_dict(torch.load("results/modelk.pth"))
+        predictor.load_state_dict(torch.load("results/predictor.pth"))
         optimizer.load_state_dict(torch.load("results/optimizer.pth"))
 
 
@@ -56,7 +62,7 @@ def train():
 
         epoch_losses_train = []
 
-        for (_, sample_batched) in enumerate(dataloader_training_dataset_mutated):
+        for (_, sample_batched) in enumerate(tqdm(dataloader_training_dataset_mutated)):
 
             optimizer.zero_grad()
 
@@ -66,16 +72,16 @@ def train():
             i1= i1.to(device)
             i2 = i2.to(device)
 
-            predictions_from_view_1 = resnetq(i1)
-            predictions_from_view_2 = resnetq(i2)
+            predictions_from_view_1 = predictor(resnetq(i1))
+            predictions_from_view_2 = predictor(resnetq(i2))
             with torch.no_grad():
                 targets_to_view_2 = resnetk(i1)
                 targets_to_view_1 = resnetk(i2)
 
             loss = loss_function(predictions_from_view_1, targets_to_view_1)
             loss += loss_function(predictions_from_view_2, targets_to_view_2)
-            epoch_losses_train.append(loss.cpu().data.item())
-            loss.backward()
+            epoch_losses_train.append(loss.mean().cpu().data.item())
+            loss.mean().backward()
             optimizer.step()
             
 
@@ -94,6 +100,7 @@ def train():
         torch.save(resnetq.state_dict(), 'results/modelq.pth')
         torch.save(resnetk.state_dict(), 'results/modelk.pth')
         torch.save(optimizer.state_dict(), 'results/optimizer.pth')
+        torch.save(predictor.state_dict(), 'results/predictor.pth')
         np.savez("results/lossesfile", np.array(losses_train))
         torch.save(queue, 'results/queue.pt')
 
